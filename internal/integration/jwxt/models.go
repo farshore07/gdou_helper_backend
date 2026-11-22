@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -323,6 +324,8 @@ func parseTimetableCourse(data map[string]any) TimetableCourse {
 	}
 }
 
+var weekBoundaryRE = regexp.MustCompile(`([周)])[\s\p{Zs}]+(第|[0-9])`)
+
 func parseWeekNumbers(value string) []int {
 	normalized := strings.NewReplacer(
 		"，", ",",
@@ -342,24 +345,10 @@ func parseWeekNumbers(value string) []int {
 		return nil
 	}
 
-	// 将 "第4周 第8周" 这类以空格分隔的独立周次段也拆开
-	rawParts := strings.Split(normalized, ",")
-	parts := make([]string, 0, len(rawParts))
-	for _, raw := range rawParts {
-		trimmed := strings.TrimSpace(raw)
-		if trimmed == "" {
-			continue
-		}
-		if strings.Count(trimmed, "周") > 1 {
-			for _, field := range strings.Fields(trimmed) {
-				if field != "" {
-					parts = append(parts, field)
-				}
-			}
-		} else {
-			parts = append(parts, trimmed)
-		}
-	}
+	// 只在完整周次与下一周次之间切分，范围和单双周后缀内部允许留白。
+	normalized = weekBoundaryRE.ReplaceAllString(normalized, "${1},${2}")
+	normalized = strings.Join(strings.Fields(normalized), "")
+	parts := strings.FieldsFunc(normalized, func(r rune) bool { return r == ',' })
 
 	// 处理 "1-5,7-9周(单)"：前段未显式带“周”且无单双标记时，继承同组末尾带“周”段的单双周属性
 	type weekSegment struct {
@@ -391,8 +380,6 @@ func parseWeekNumbers(value string) []int {
 		"双", "",
 		"(", "",
 		")", "",
-		" ", "",
-		"\t", "",
 	)
 
 	seen := map[int]struct{}{}
