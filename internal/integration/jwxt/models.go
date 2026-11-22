@@ -324,16 +324,84 @@ func parseTimetableCourse(data map[string]any) TimetableCourse {
 }
 
 func parseWeekNumbers(value string) []int {
-	cleaned := strings.NewReplacer("周", "", "，", ",", "（", "(", "）", ")").Replace(strings.TrimSpace(value))
-	if cleaned == "" {
+	normalized := strings.NewReplacer(
+		"，", ",",
+		"、", ",",
+		";", ",",
+		"；", ",",
+		"（", "(",
+		"）", ")",
+		"～", "-",
+		"~", "-",
+		"—", "-",
+		"–", "-",
+		"至", "-",
+		"到", "-",
+	).Replace(strings.TrimSpace(value))
+	if normalized == "" {
 		return nil
 	}
+
+	// 将 "第4周 第8周" 这类以空格分隔的独立周次段也拆开
+	rawParts := strings.Split(normalized, ",")
+	parts := make([]string, 0, len(rawParts))
+	for _, raw := range rawParts {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		if strings.Count(trimmed, "周") > 1 {
+			for _, field := range strings.Fields(trimmed) {
+				if field != "" {
+					parts = append(parts, field)
+				}
+			}
+		} else {
+			parts = append(parts, trimmed)
+		}
+	}
+
+	// 处理 "1-5,7-9周(单)"：前段未显式带“周”且无单双标记时，继承同组末尾带“周”段的单双周属性
+	type weekSegment struct {
+		text   string
+		isOdd  bool
+		isEven bool
+	}
+	segments := make([]weekSegment, len(parts))
+	for i, part := range parts {
+		segments[i] = weekSegment{
+			text:   part,
+			isOdd:  strings.Contains(part, "单"),
+			isEven: strings.Contains(part, "双"),
+		}
+	}
+	for i := len(segments) - 2; i >= 0; i-- {
+		if !segments[i].isOdd && !segments[i].isEven && !strings.Contains(segments[i].text, "周") {
+			segments[i].isOdd = segments[i+1].isOdd
+			segments[i].isEven = segments[i+1].isEven
+		}
+	}
+
+	stripReplacer := strings.NewReplacer(
+		"第", "",
+		"周", "",
+		"(单)", "",
+		"(双)", "",
+		"单", "",
+		"双", "",
+		"(", "",
+		")", "",
+		" ", "",
+		"\t", "",
+	)
+
 	seen := map[int]struct{}{}
-	for _, part := range strings.Split(cleaned, ",") {
-		part = strings.TrimSpace(part)
-		isOdd, isEven := strings.Contains(part, "单"), strings.Contains(part, "双")
-		part = strings.ReplaceAll(strings.ReplaceAll(part, "(单)", ""), "(双)", "")
-		bounds := strings.Split(strings.TrimSpace(part), "-")
+	for _, seg := range segments {
+		cleaned := strings.TrimSpace(stripReplacer.Replace(seg.text))
+		if cleaned == "" {
+			continue
+		}
+		bounds := strings.Split(cleaned, "-")
 		start, err := strconv.Atoi(strings.TrimSpace(bounds[0]))
 		if err != nil {
 			continue
@@ -345,11 +413,17 @@ func parseWeekNumbers(value string) []int {
 				continue
 			}
 		}
+		if end < start {
+			start, end = end, start
+		}
 		for week := start; week <= end; week++ {
-			if week > 0 && (!isOdd || week%2 == 1) && (!isEven || week%2 == 0) {
+			if week > 0 && (!seg.isOdd || week%2 == 1) && (!seg.isEven || week%2 == 0) {
 				seen[week] = struct{}{}
 			}
 		}
+	}
+	if len(seen) == 0 {
+		return nil
 	}
 	result := make([]int, 0, len(seen))
 	for week := range seen {

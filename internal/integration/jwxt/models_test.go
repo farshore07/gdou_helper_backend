@@ -45,6 +45,24 @@ func TestParseTimetableAndWeeks(t *testing.T) {
 	if empty.Courses == nil || empty.StudentInfo == nil {
 		t.Fatalf("empty timetable must have non-nil slices and maps")
 	}
+
+	cases := []struct {
+		raw  string
+		want []int
+	}{
+		{"第4周", []int{4}},
+		{"第1-3周", []int{1, 2, 3}},
+		{"第4周 第8周", []int{4, 8}},
+		{"1-5单周", []int{1, 3, 5}},
+		{"1-5,7-9周(单)", []int{1, 3, 5, 7, 9}},
+		{"1-3周、6~8周(双)", []int{1, 2, 3, 6, 8}},
+	}
+	for _, tc := range cases {
+		got := parseWeekNumbers(tc.raw)
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("parseWeekNumbers(%q) = %v, want %v", tc.raw, got, tc.want)
+		}
+	}
 }
 
 func TestParseGradeAndDetail(t *testing.T) {
