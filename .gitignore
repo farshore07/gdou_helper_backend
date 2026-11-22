@@ -4,7 +4,6 @@
 *.exe
 *.out
 *.test
-*_test.go
 coverage.out
 
 # Local env files

@@ -329,6 +329,9 @@ func (c *Client) QueryGradeDetail(ctx context.Context, cookie string, query url.
 	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
 		return GradeDetail{}, newError(ErrorUpstreamError, extractUpstreamErrorMessage(res.StatusCode, body, mode == NetworkModeExternal), nil)
 	}
+	if !isGradeDetailPageHTML(body) {
+		return GradeDetail{}, newError(ErrorUpstreamError, extractUpstreamErrorMessage(res.StatusCode, body, mode == NetworkModeExternal), nil)
+	}
 	return parseGradeDetail(body), nil
 }
 

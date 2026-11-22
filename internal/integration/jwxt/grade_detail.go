@@ -21,6 +21,8 @@ type GradeDetailItem struct {
 
 var (
 	gradeDetailCourseRE = regexp.MustCompile(`(?s)课程名称.*?<span[^>]*class=["']red2["'][^>]*>(.*?)</span>`)
+	gradeDetailHeaderRE = regexp.MustCompile(`(?is)<t[hd][^>]*>\s*(?:成绩分项|成绩分项比例)\s*</t[hd]>`)
+	gradeDetailTableRE  = regexp.MustCompile(`(?is)<table\b[^>]*>`)
 	gradeDetailRowRE    = regexp.MustCompile(`(?s)<tr[^>]*>\s*<td[^>]*>\s*(.*?)\s*</td>\s*<td[^>]*>\s*(.*?)\s*</td>\s*<td[^>]*>\s*(.*?)\s*</td>\s*</tr>`)
 	htmlTagStripRE      = regexp.MustCompile(`<[^>]+>`)
 )
@@ -29,6 +31,19 @@ func cleanHTMLText(value string) string {
 	stripped := htmlTagStripRE.ReplaceAllString(value, "")
 	unescaped := html.UnescapeString(stripped)
 	return strings.Join(strings.Fields(strings.ReplaceAll(unescaped, "\u00a0", " ")), " ")
+}
+
+func isGradeDetailPageHTML(body string) bool {
+	if !gradeDetailTableRE.MatchString(body) {
+		return false
+	}
+	if gradeDetailCourseRE.MatchString(body) || gradeDetailHeaderRE.MatchString(body) {
+		return true
+	}
+	lower := strings.ToLower(body)
+	return strings.Contains(lower, "subtab") ||
+		strings.Contains(lower, "cjxq") ||
+		strings.Contains(lower, "xmcj")
 }
 
 func parseGradeDetail(body string) GradeDetail {
