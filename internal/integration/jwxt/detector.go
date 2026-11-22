@@ -4,6 +4,7 @@ import (
 	"html"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -290,4 +291,36 @@ func hasAuthRedirectInChain(chain []string, authserverHost string) bool {
 		}
 	}
 	return false
+}
+
+// extractUpstreamErrorMessage 根据上游状态码与页面文本提取面向用户的具体故障说明。
+func extractUpstreamErrorMessage(statusCode int, body string, viaWfw bool) string {
+	title := extractHTMLTitle(body)
+	text := htmlSnippet(body, 260)
+	combined := title + " " + text
+
+	if strings.Contains(combined, "无法访问目标服务器") || strings.Contains(combined, "教务或统一认证系统短暂繁忙") {
+		return "校外网关（wfw）当前无法连接校内教务系统（教务或统一认证系统繁忙或维护中），请稍后重试"
+	}
+	if strings.Contains(combined, "系统维护") || strings.Contains(combined, "维护中") || strings.Contains(combined, "暂停服务") {
+		return "教务系统当前正在维护中，请稍后重试"
+	}
+
+	prefix := "教务系统"
+	if viaWfw {
+		prefix = "校外网关（wfw）转发教务系统"
+	}
+	switch statusCode {
+	case 502:
+		return prefix + "返回 502（目标服务不可达），请稍后重试"
+	case 503:
+		return prefix + "当前繁忙或维护中（HTTP 503），请稍后重试"
+	case 504:
+		return prefix + "响应超时（HTTP 504），请稍后重试"
+	default:
+		if statusCode >= 500 && statusCode < 600 {
+			return prefix + "服务异常（HTTP " + strconv.Itoa(statusCode) + "），请稍后重试"
+		}
+		return prefix + "返回了异常响应，请稍后重试"
+	}
 }

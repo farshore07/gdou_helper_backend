@@ -2,8 +2,8 @@ package jwxt
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -72,6 +72,9 @@ func NewClient(opts ClientOptions) *Client {
 				Timeout:   10 * time.Second,
 				KeepAlive: 30 * time.Second,
 			}).DialContext,
+			// 与 Python requests 保持一致使用 HTTP/1.1，避免校园反代网关在 HTTP/2 连接复用下切站异常
+			ForceAttemptHTTP2:     false,
+			TLSNextProto:          make(map[string]func(string, *tls.Conn) http.RoundTripper),
 			MaxIdleConns:          100,
 			MaxIdleConnsPerHost:   20,
 			IdleConnTimeout:       90 * time.Second,
@@ -170,7 +173,7 @@ func (c *Client) ValidateSession(ctx context.Context, cookie string) (AuthResult
 	body := string(res.Body)
 	// 上游 5xx（含 302 跳转至统一认证后认证服务返回 503）优先归类为上游服务异常，不误报会话过期
 	if res.StatusCode >= http.StatusInternalServerError && res.StatusCode < 600 {
-		return AuthResult{}, newError(ErrorUpstreamError, fmt.Sprintf("教务系统服务异常: HTTP %d", res.StatusCode), nil)
+		return AuthResult{}, newError(ErrorUpstreamError, extractUpstreamErrorMessage(res.StatusCode, body, mode == NetworkModeExternal), nil)
 	}
 
 	if isJwxtAuthenticatedResponse(res.StatusCode, res.FinalURL, body, c.jwxtHost, c.authserverHost, c.wfwHost) {
@@ -187,10 +190,10 @@ func (c *Client) ValidateSession(ctx context.Context, cookie string) (AuthResult
 	}
 
 	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
-		return AuthResult{}, newError(ErrorUpstreamError, fmt.Sprintf("教务系统服务异常: HTTP %d", res.StatusCode), nil)
+		return AuthResult{}, newError(ErrorUpstreamError, extractUpstreamErrorMessage(res.StatusCode, body, mode == NetworkModeExternal), nil)
 	}
 
-	return AuthResult{}, newError(ErrorUpstreamError, "教务系统维护或返回了异常页面", nil)
+	return AuthResult{}, newError(ErrorUpstreamError, extractUpstreamErrorMessage(res.StatusCode, body, mode == NetworkModeExternal), nil)
 }
 
 // QueryTimetable 查询个人课表（附带节次时间与学期起始日期，附加信息失败不阻断主课表）。
@@ -324,7 +327,7 @@ func (c *Client) QueryGradeDetail(ctx context.Context, cookie string, query url.
 		return GradeDetail{}, ErrSessionExpired
 	}
 	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
-		return GradeDetail{}, newError(ErrorUpstreamError, fmt.Sprintf("查询成绩明细失败: HTTP %d", res.StatusCode), nil)
+		return GradeDetail{}, newError(ErrorUpstreamError, extractUpstreamErrorMessage(res.StatusCode, body, mode == NetworkModeExternal), nil)
 	}
 	return parseGradeDetail(body), nil
 }
@@ -406,7 +409,7 @@ func (c *Client) postBusinessFormValue(
 		return nil, ErrSessionExpired
 	}
 	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
-		return nil, newError(ErrorUpstreamError, fmt.Sprintf("教务系统 HTTP 状态异常: %d", res.StatusCode), nil)
+		return nil, newError(ErrorUpstreamError, extractUpstreamErrorMessage(res.StatusCode, body, mode == NetworkModeExternal), nil)
 	}
 
 	var out any

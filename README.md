@@ -33,12 +33,15 @@ go run ./cmd/api
 go build -o bin/gdou-helper-backend ./cmd/api
 ```
 
-## 环境变量
+## 环境变量与 `.env` 文件
+
+启动时优先读取系统环境变量，其次自动读取当前工作目录的 `.env` 文件（也可通过 `ENV_FILE` 指定路径），参考 [.env.example](.env.example)。
 
 | 变量名 | 默认值 | 说明 |
 | --- | --- | --- |
+| `ENV_FILE` | `.env` | 自定义 `.env` 配置文件路径（显式指定时文件必须存在） |
 | `APP_ENV` | `dev` | 运行环境：`dev` / `prod` / `test` |
-| `HTTP_ADDR` | `:8080` | 监听地址 |
+| `HTTP_ADDR` | `:8080` | 监听地址（支持 `:8080`、`127.0.0.1:8080` 或纯端口号 `8080`） |
 | `HTTP_MAX_BODY_BYTES` | `1048576` | 单请求最大体大小（字节） |
 | `TRUSTED_PROXIES` | 空 | 可信反向代理 CIDR（逗号分隔，空则不信任任意代理） |
 | `CORS_ALLOW_ORIGINS` | 空 | 允许跨域的 Origin 白名单（逗号分隔，可填 `*`） |

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -30,6 +31,8 @@ var (
 	reAuthBlockRE = regexp.MustCompile(`(?s)reAuthParams\s*=\s*\{(.*?)\}`)
 	reMethod4RE   = regexp.MustCompile(`id=["']4["']`)
 	reMethod3RE   = regexp.MustCompile(`id=["']3["']`)
+	htmlTitleRE   = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+	htmlStyleRE   = regexp.MustCompile(`(?is)<(style|script)[^>]*>.*?</(style|script)>`)
 )
 
 type httpResult struct {
@@ -573,9 +576,45 @@ func (c *Client) completeExternalJwxtSSO(
 		if isJwxtAuthenticatedResponse(forwardResp.StatusCode, forwardResp.FinalURL, string(forwardResp.Body), c.jwxtHost, c.authserverHost, c.wfwHost) {
 			return forwardResp, nil
 		}
+		fwdBody := string(forwardResp.Body)
+		slog.Warn("wfw 教务主页初始化失败",
+			"stage", "wfw_jwxt_forward",
+			"landing_url", redactURL(landing.FinalURL),
+			"jw_entry_status", jwEntry.StatusCode,
+			"forward_status", forwardResp.StatusCode,
+			"forward_url", redactURL(forwardResp.FinalURL),
+			"forward_len", len(forwardResp.Body),
+			"forward_title", extractHTMLTitle(fwdBody),
+			"forward_text", htmlSnippet(fwdBody, 200),
+			"forward_is_login", isLoginPageHTML(fwdBody),
+			"wfw_cookies", c.cookieNamesForHost(httpClient.Jar, c.wfwBaseURL),
+		)
+		if forwardResp.StatusCode >= http.StatusInternalServerError && forwardResp.StatusCode < 600 {
+			return httpResult{}, newError(ErrorUpstreamError, extractUpstreamErrorMessage(forwardResp.StatusCode, fwdBody, true), nil)
+		}
 		return httpResult{}, newError(ErrorVerificationFailed, "已进入校外网关教务入口，但初始化教务主页失败", nil)
 	}
 
+	jwBody := string(jwEntry.Body)
+	slog.Warn("wfw 激活后换取教务登录态失败",
+		"stage", "wfw_to_jwxt",
+		"landing_status", landing.StatusCode,
+		"landing_url", redactURL(landing.FinalURL),
+		"landing_chain", redactURLs(landing.RedirectChain),
+		"landing_title", extractHTMLTitle(string(landing.Body)),
+		"jw_entry_status", jwEntry.StatusCode,
+		"jw_entry_url", redactURL(jwEntry.FinalURL),
+		"jw_entry_chain", redactURLs(jwEntry.RedirectChain),
+		"jw_entry_len", len(jwEntry.Body),
+		"jw_entry_title", extractHTMLTitle(jwBody),
+		"jw_entry_text", htmlSnippet(jwBody, 200),
+		"jw_entry_is_login", isLoginPageHTML(jwBody),
+		"jw_entry_is_reauth", isReAuthPageHTML(jwBody),
+		"wfw_cookies", c.cookieNamesForHost(httpClient.Jar, c.wfwBaseURL),
+	)
+	if jwEntry.StatusCode >= http.StatusInternalServerError && jwEntry.StatusCode < 600 {
+		return httpResult{}, newError(ErrorUpstreamError, extractUpstreamErrorMessage(jwEntry.StatusCode, jwBody, true), nil)
+	}
 	return httpResult{}, newError(ErrorVerificationFailed, "已激活校外网关，但换取教务系统登录态失败", nil)
 }
 
@@ -1210,4 +1249,63 @@ func minDuration(a, b time.Duration) time.Duration {
 		return a
 	}
 	return b
+}
+
+func extractHTMLTitle(body string) string {
+	m := htmlTitleRE.FindStringSubmatch(body)
+	if len(m) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(html.UnescapeString(htmlTagStripRE.ReplaceAllString(m[1], "")))
+}
+
+func htmlSnippet(body string, maxRunes int) string {
+	noStyle := htmlStyleRE.ReplaceAllString(body, " ")
+	cleaned := cleanHTMLText(noStyle)
+	runes := []rune(cleaned)
+	if len(runes) <= maxRunes {
+		return cleaned
+	}
+	return string(runes[:maxRunes])
+}
+
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	q := u.Query()
+	for _, sensitive := range []string{"ticket", "bfp", "dynamicCode", "password"} {
+		if q.Has(sensitive) {
+			q.Set(sensitive, "***")
+		}
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func redactURLs(urls []string) []string {
+	out := make([]string, 0, len(urls))
+	for _, u := range urls {
+		out = append(out, redactURL(u))
+	}
+	return out
+}
+
+func (c *Client) cookieNamesForHost(jar http.CookieJar, baseURL string) []string {
+	if jar == nil {
+		return nil
+	}
+	u, err := url.Parse(strings.TrimRight(baseURL, "/") + "/")
+	if err != nil {
+		return nil
+	}
+	cookies := jar.Cookies(u)
+	names := make([]string, 0, len(cookies))
+	for _, ck := range cookies {
+		if ck.Name != "" {
+			names = append(names, ck.Name)
+		}
+	}
+	return names
 }

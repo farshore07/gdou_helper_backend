@@ -14,7 +14,7 @@
 ## 目录结构
 
 - `cmd/api/main.go`：服务入口、配置校验与优雅停机
-- `internal/config/config.go`：环境变量解析与启动参数校验
+- `internal/config/config.go`：支持系统环境变量与 `.env`（或 `ENV_FILE`）合并加载及启动参数校验（环境变量优先级高于 `.env`）
 - `internal/integration/jwxt/`：金智统一身份认证加密、重定向与页面检测、纯 HTTP CAS/MFA/wfw 网关接入、课表/成绩/成绩分项/考试解析
 - `internal/server/`：Gin 路由、统一 JSON 响应与错误码映射、内存 TTL 事务存储、教务 HTTP 处理器
 - `docs/architecture-and-api-plan.md`：协议细节与接口契约文档
