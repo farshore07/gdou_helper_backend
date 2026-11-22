@@ -1,0 +1,17 @@
+# Go binaries & test outputs
+/bin/
+/dist/
+*.exe
+*.out
+*.test
+*_test.go
+coverage.out
+
+# Local env files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
