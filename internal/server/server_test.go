@@ -187,15 +187,17 @@ func TestGradeDetailMaintenanceVsEmptyTable(t *testing.T) {
 			return respWith(r, http.StatusOK, "text/html", nil, nil, `<html><body>系统维护中，请稍后再试</body></html>`), nil
 		case "MAINT_TITLE":
 			return respWith(r, http.StatusOK, "text/html", nil, nil, `<html><head><title>成绩分项查询维护中</title></head><body>成绩分项查询维护中</body></html>`), nil
+		case "MAINT_DIAG":
+			return respWith(r, http.StatusOK, "text/html", nil, nil, `<html><body><h3>系统维护中</h3><table><tr><td>请求路径</td><td>/cjcx/cjcx_cxCjxqGjh.html</td><td>维护中</td></tr></table></body></html>`), nil
 		case "EMPTY":
 			return respWith(r, http.StatusOK, "text/html", nil, nil, `<div>课程名称：<span class="red2">体育</span></div><table id="subtab"><tr><td>成绩分项</td><td>成绩分项比例</td><td>成绩</td></tr></table>`), nil
 		default:
-			return respWith(r, http.StatusOK, "text/html", nil, nil, `课程名称：<span class="red2">算法</span><table><tr><td>平时成绩</td><td>40%</td><td>95</td></tr></table>`), nil
+			return respWith(r, http.StatusOK, "text/html", nil, nil, `课程名称：<span class="red2">算法</span><table><tr><th>成绩分项</th><th>成绩分项比例</th><th>成绩</th></tr><tr><td>平时成绩</td><td>40%</td><td>95</td></tr></table>`), nil
 		}
 	}))
 
-	// 1. HTTP 200 维护页（含标题提及“成绩分项”的维护页）必须返回 502 JWXT_UPSTREAM_ERROR
-	for _, id := range []string{"MAINT", "MAINT_TITLE"} {
+	// 1. HTTP 200 维护页（普通/标题含“成绩分项”/带诊断表回显接口路径）必须返回 502 JWXT_UPSTREAM_ERROR
+	for _, id := range []string{"MAINT", "MAINT_TITLE", "MAINT_DIAG"} {
 		rec, body := doJSON(t, srv.Handler, http.MethodPost, "/api/v1/jwxt/grade-detail", map[string]any{
 			"cookie": "JSESSIONID=OK",
 			"query":  map[string]string{"jxb_id": id},
@@ -286,7 +288,7 @@ func TestJWXTLoginMfaAndProtectedEndpoints(t *testing.T) {
 			if !strings.Contains(cookie, "JSESSIONID=JW_VALID") {
 				return respWith(r, http.StatusOK, "text/html", nil, nil, loginHTML), nil
 			}
-			return respWith(r, http.StatusOK, "text/html", nil, nil, `课程名称：<span class="red2">算法</span><table><tr><td>期末</td><td>100%</td><td>95</td></tr></table>`), nil
+			return respWith(r, http.StatusOK, "text/html", nil, nil, `课程名称：<span class="red2">算法</span><table><tr><th>成绩分项</th><th>成绩分项比例</th><th>成绩</th></tr><tr><td>期末</td><td>100%</td><td>95</td></tr></table>`), nil
 		case path == "/kwgl/kscx_cxXsksxxIndex.html":
 			if !strings.Contains(cookie, "JSESSIONID=JW_VALID") {
 				return respWith(r, http.StatusOK, "text/html", nil, nil, loginHTML), nil

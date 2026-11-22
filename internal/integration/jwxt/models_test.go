@@ -75,12 +75,16 @@ func TestParseGradeAndDetail(t *testing.T) {
 
 	htmlBody := `
 	<div>课程名称：<span class="red2">操作系统&nbsp;</span></div>
+	<table><tr><td>无关列1</td><td>无关列2</td><td>无关列3</td></tr></table>
 	<table>
-		<tr><td>成绩分项</td><td>成绩分项比例</td><td>成绩</td></tr>
+		<tr><th>成绩分项</th><th>成绩分项比例</th><th>成绩</th></tr>
 		<tr><td>平时成绩</td><td>40%</td><td>95</td></tr>
 		<tr><td>期末成绩</td><td>60%</td><td>90</td></tr>
 	</table>`
-	detail := parseGradeDetail(htmlBody)
+	detail, ok := parseGradeDetailHTML(htmlBody)
+	if !ok {
+		t.Fatalf("valid grade detail page should be recognized")
+	}
 	if detail.CourseName != "操作系统" {
 		t.Fatalf("unexpected course name: %q", detail.CourseName)
 	}
@@ -89,22 +93,23 @@ func TestParseGradeAndDetail(t *testing.T) {
 	}
 
 	emptyTableHTML := `<div>课程名称：<span class="red2">体育</span></div><table><tr><td>成绩分项</td><td>成绩分项比例</td><td>成绩</td></tr></table>`
-	if !isGradeDetailPageHTML(emptyTableHTML) {
+	emptyDetail, ok := parseGradeDetailHTML(emptyTableHTML)
+	if !ok {
 		t.Fatalf("valid empty grade detail table should be recognized")
 	}
-	emptyDetail := parseGradeDetail(emptyTableHTML)
 	if emptyDetail.Items == nil || len(emptyDetail.Items) != 0 || emptyDetail.CourseName != "体育" {
 		t.Fatalf("empty grade detail must return non-nil empty items: %+v", emptyDetail)
 	}
 
-	if isGradeDetailPageHTML("<html><body>系统维护中</body></html>") {
-		t.Fatalf("maintenance page must not be treated as grade detail page")
-	}
-	if isGradeDetailPageHTML("<html><head><title>成绩分项查询维护中</title></head><body>成绩分项查询维护中</body></html>") {
-		t.Fatalf("maintenance page mentioning 成绩分项 in title/body without table must be rejected")
-	}
-	if isGradeDetailPageHTML("<html><body><table><tr><td>成绩分项查询维护中</td></tr></table></body></html>") {
-		t.Fatalf("maintenance table without grade detail header must be rejected")
+	for _, invalidHTML := range []string{
+		"<html><body>系统维护中</body></html>",
+		"<html><head><title>成绩分项查询维护中</title></head><body>成绩分项查询维护中</body></html>",
+		"<html><body><table><tr><td>成绩分项查询维护中</td></tr></table></body></html>",
+		"<html><body><table><tr><td>请求路径</td><td>/cjcx/cjcx_cxCjxqGjh.html</td><td>维护中</td></tr></table></body></html>",
+	} {
+		if _, ok := parseGradeDetailHTML(invalidHTML); ok {
+			t.Fatalf("invalid maintenance HTML must be rejected: %s", invalidHTML)
+		}
 	}
 }
 

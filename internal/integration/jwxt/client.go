@@ -329,10 +329,11 @@ func (c *Client) QueryGradeDetail(ctx context.Context, cookie string, query url.
 	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
 		return GradeDetail{}, newError(ErrorUpstreamError, extractUpstreamErrorMessage(res.StatusCode, body, mode == NetworkModeExternal), nil)
 	}
-	if !isGradeDetailPageHTML(body) {
+	detail, ok := parseGradeDetailHTML(body)
+	if !ok {
 		return GradeDetail{}, newError(ErrorUpstreamError, extractUpstreamErrorMessage(res.StatusCode, body, mode == NetworkModeExternal), nil)
 	}
-	return parseGradeDetail(body), nil
+	return detail, nil
 }
 
 // QueryExams 查询考试日程安排。

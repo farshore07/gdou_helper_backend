@@ -219,7 +219,7 @@ func TestExternalWfwFullFlowCaptchaMfaAndQueries(t *testing.T) {
 		case host == "wfw.gdou.edu.cn" && path == "/cjcx/cjcx_cxCjxqGjh.html":
 			gradeDetailHit = true
 			return makeResponse(r, http.StatusOK, map[string]string{"Content-Type": "text/html"}, nil,
-				`课程名称：<span class="red2">计算机网络</span><table><tr><td>平时</td><td>30%</td><td>98</td></tr></table>`), nil
+				`课程名称：<span class="red2">计算机网络</span><table><thead><tr><th>成绩分项</th><th>成绩分项比例</th><th>成绩</th></tr></thead><tbody><tr><td>平时</td><td>30%</td><td>98</td></tr></tbody></table>`), nil
 		}
 
 		return makeResponse(r, http.StatusNotFound, nil, nil, "unexpected: "+r.URL.String()), nil
