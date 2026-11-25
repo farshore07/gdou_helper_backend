@@ -28,12 +28,11 @@ const (
 )
 
 var (
-	reAuthBlockRE   = regexp.MustCompile(`(?s)reAuthParams\s*=\s*\{(.*?)\}`)
-	reMethod4RE     = regexp.MustCompile(`id=["']4["']`)
-	reMethod3RE     = regexp.MustCompile(`id=["']3["']`)
-	htmlTitleRE     = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
-	htmlStyleRE     = regexp.MustCompile(`(?is)<(style|script)[^>]*>.*?</(style|script)>`)
-	casServiceVarRE = regexp.MustCompile(`var\s+service\s*=\s*\[\s*["']([^"']+)["']`)
+	reAuthBlockRE = regexp.MustCompile(`(?s)reAuthParams\s*=\s*\{(.*?)\}`)
+	reMethod4RE   = regexp.MustCompile(`id=["']4["']`)
+	reMethod3RE   = regexp.MustCompile(`id=["']3["']`)
+	htmlTitleRE   = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+	htmlStyleRE   = regexp.MustCompile(`(?is)<(style|script)[^>]*>.*?</(style|script)>`)
 )
 
 type httpResult struct {
@@ -597,49 +596,6 @@ func (c *Client) completeExternalJwxtSSO(
 	}
 
 	jwBody := string(jwEntry.Body)
-	// wfw 反代 jw.gdou.edu.cn 时，服务端内部追随 302 可能导致以 200 直接返回统一身份认证登录页
-	// （未携带 authserver 域的 CASTGC）。此时利用客户端已持有的 CASTGC 向 authserver 申请教务 ST 票据完成换票。
-	if jwEntry.StatusCode == http.StatusOK && isLoginPageHTML(jwBody) {
-		ssoService := extractCASServiceURL(jwBody)
-		if ssoService == "" {
-			ssoService = c.wfwJwxtInitURL() + pathSSOService
-		}
-		authURL := c.authserverEndpoint("login") + "?service=" + url.QueryEscape(ssoService)
-		ssoResp, err := c.doRequestFollowing(ctx, httpClient, http.MethodGet, authURL, nil, nil, mode)
-		if err != nil {
-			return httpResult{}, classifyTransportError(err)
-		}
-		ssoBody := string(ssoResp.Body)
-		if isJwxtAuthenticatedResponse(ssoResp.StatusCode, ssoResp.FinalURL, ssoBody, c.jwxtHost, c.authserverHost, c.wfwHost) {
-			return ssoResp, nil
-		}
-		if isWfwGatewayResponse(ssoResp.StatusCode, ssoResp.FinalURL, ssoBody, c.wfwHost, c.authserverHost) {
-			forwardResp, err := c.doRequestFollowing(ctx, httpClient, http.MethodGet, c.wfwJwxtForwardURL(), nil, nil, mode)
-			if err != nil {
-				return httpResult{}, classifyTransportError(err)
-			}
-			if isJwxtAuthenticatedResponse(forwardResp.StatusCode, forwardResp.FinalURL, string(forwardResp.Body), c.jwxtHost, c.authserverHost, c.wfwHost) {
-				return forwardResp, nil
-			}
-		}
-		slog.Warn("wfw 教务入口返回登录页后利用 CASTGC 换票失败",
-			"stage", "wfw_jwxt_castgc_exchange",
-			"sso_service", redactURL(ssoService),
-			"sso_status", ssoResp.StatusCode,
-			"sso_url", redactURL(ssoResp.FinalURL),
-			"sso_chain", redactURLs(ssoResp.RedirectChain),
-			"sso_title", extractHTMLTitle(ssoBody),
-			"sso_text", htmlSnippet(ssoBody, 200),
-			"sso_is_login", isLoginPageHTML(ssoBody),
-			"sso_is_reauth", isReAuthPageHTML(ssoBody),
-			"wfw_cookies", c.cookieNamesForHost(httpClient.Jar, c.wfwBaseURL),
-		)
-		if ssoResp.StatusCode >= http.StatusInternalServerError && ssoResp.StatusCode < 600 {
-			return httpResult{}, newError(ErrorUpstreamError, extractUpstreamErrorMessage(ssoResp.StatusCode, ssoBody, true), nil)
-		}
-		return httpResult{}, newError(ErrorVerificationFailed, "已激活校外网关，但换取教务系统登录态失败", nil)
-	}
-
 	slog.Warn("wfw 激活后换取教务登录态失败",
 		"stage", "wfw_to_jwxt",
 		"landing_status", landing.StatusCode,
@@ -658,6 +614,9 @@ func (c *Client) completeExternalJwxtSSO(
 	)
 	if jwEntry.StatusCode >= http.StatusInternalServerError && jwEntry.StatusCode < 600 {
 		return httpResult{}, newError(ErrorUpstreamError, extractUpstreamErrorMessage(jwEntry.StatusCode, jwBody, true), nil)
+	}
+	if jwEntry.StatusCode == http.StatusOK && isLoginPageHTML(jwBody) {
+		return httpResult{}, newError(ErrorUpstreamError, "校外网关（wfw）当前单点登录异常，暂时无法进入教务系统，请稍后重试", nil)
 	}
 	return httpResult{}, newError(ErrorVerificationFailed, "已激活校外网关，但换取教务系统登录态失败", nil)
 }
@@ -1293,14 +1252,6 @@ func minDuration(a, b time.Duration) time.Duration {
 		return a
 	}
 	return b
-}
-
-func extractCASServiceURL(body string) string {
-	m := casServiceVarRE.FindStringSubmatch(body)
-	if len(m) < 2 {
-		return ""
-	}
-	return strings.TrimSpace(unescapeJSString(m[1]))
 }
 
 func extractHTMLTitle(body string) string {

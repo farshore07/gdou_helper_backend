@@ -501,22 +501,16 @@ func TestWfw502TargetUnreachableMessage(t *testing.T) {
 	}
 }
 
-func TestWfwJwEntryLoginPageExchangesViaCASTGC(t *testing.T) {
-	var sawCASTGCExchange bool
-	const wfwJwSSOService = "https://wfw.gdou.edu.cn/https://jw.gdou.edu.cn/sso/jziotlogin"
-
+func TestWfwJwEntryLoginPageReturnsUpstreamError(t *testing.T) {
 	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		host := r.URL.Hostname()
 		path := r.URL.Path
 		q := r.URL.Query()
-		cookie := r.Header.Get("Cookie")
 		switch {
-		case host == "authserver.gdou.edu.cn" && path == "/authserver/login" && q.Get("service") == "https://wfw.gdou.edu.cn/":
+		case host == "authserver.gdou.edu.cn" && path == "/authserver/login":
 			return makeResponse(r, http.StatusFound, map[string]string{
 				"Location": "https://wfw.gdou.edu.cn/?ticket=ST-WFW",
-			}, []*http.Cookie{
-				{Name: "CASTGC", Value: "TGT-VALID", Path: "/authserver"},
-			}, ""), nil
+			}, nil, ""), nil
 		case host == "wfw.gdou.edu.cn" && path == "/" && q.Get("ticket") == "ST-WFW":
 			return makeResponse(r, http.StatusFound, map[string]string{
 				"Location": "https://wfw.gdou.edu.cn/",
@@ -526,27 +520,11 @@ func TestWfwJwEntryLoginPageExchangesViaCASTGC(t *testing.T) {
 		case host == "wfw.gdou.edu.cn" && path == "/":
 			return makeResponse(r, http.StatusOK, nil, nil, `<html><title>文件管理</title></html>`), nil
 		case host == "wfw.gdou.edu.cn" && path == "/https://jw.gdou.edu.cn":
-			// 复现生产现象：wfw 代理 jw.gdou.edu.cn 直接以 200 返回统一身份认证登录页
+			// 复现学校 wfw 网关异常：已激活 WFWSESSID 但教务入口直接以 200 返回统一身份认证登录页
 			return makeResponse(r, http.StatusOK, map[string]string{"Content-Type": "text/html"}, []*http.Cookie{
+				{Name: "urlss", Value: "https://jw.gdou.edu.cn", Path: "/"},
 				{Name: "urlss_jw", Value: "https://jw.gdou.edu.cn", Path: "/"},
-			}, `<html><head><title>统一身份认证平台</title><script>var service = ["https:\/\/wfw.gdou.edu.cn\/https:\/\/jw.gdou.edu.cn\/sso\/jziotlogin"];</script></head><body><form id="pwdFromId"><input id="pwdEncryptSalt" value="1234567890abcdef"/></form></body></html>`), nil
-		case host == "authserver.gdou.edu.cn" && path == "/authserver/login" && q.Get("service") == wfwJwSSOService:
-			if !strings.Contains(cookie, "CASTGC=TGT-VALID") {
-				return makeResponse(r, http.StatusOK, nil, nil, sampleLoginHTML), nil
-			}
-			sawCASTGCExchange = true
-			return makeResponse(r, http.StatusFound, map[string]string{
-				"Location": wfwJwSSOService + "?ticket=ST-JW",
-			}, nil, ""), nil
-		case host == "wfw.gdou.edu.cn" && path == "/https://jw.gdou.edu.cn/sso/jziotlogin" && q.Get("ticket") == "ST-JW":
-			if !strings.Contains(cookie, "WFWSESSID=WFW-ACTIVE") {
-				return makeResponse(r, http.StatusOK, nil, nil, sampleLoginHTML), nil
-			}
-			return makeResponse(r, http.StatusFound, map[string]string{
-				"Location": "/xtgl/index_initMenu.html",
-			}, nil, ""), nil
-		case host == "wfw.gdou.edu.cn" && path == "/xtgl/index_initMenu.html":
-			return makeResponse(r, http.StatusOK, nil, nil, `<html><title>教学管理信息服务平台</title></html>`), nil
+			}, `<html><head><title>统一身份认证平台</title></head><body><form id="pwdFromId"><input id="pwdEncryptSalt" value="1234567890abcdef"/></form></body></html>`), nil
 		}
 		return makeResponse(r, http.StatusNotFound, nil, nil, "unexpected: "+r.URL.String()), nil
 	})
@@ -555,18 +533,16 @@ func TestWfwJwEntryLoginPageExchangesViaCASTGC(t *testing.T) {
 		AccessMode: NetworkModeExternal,
 		Transport:  transport,
 	})
-	outcome, err := client.BeginLogin(context.Background(), BeginLoginInput{
+	_, err := client.BeginLogin(context.Background(), BeginLoginInput{
 		Username:    "202311701234",
 		Password:    "pwd",
 		NetworkMode: NetworkModeExternal,
 	})
-	if err != nil {
-		t.Fatalf("expected login success via CASTGC exchange, got error: %v", err)
+	var jwErr *Error
+	if !errors.As(err, &jwErr) || jwErr.Kind != ErrorUpstreamError {
+		t.Fatalf("expected ErrorUpstreamError, got %v", err)
 	}
-	if !sawCASTGCExchange {
-		t.Fatalf("expected CASTGC exchange request to authserver for wfw jwxt service")
-	}
-	if outcome.Status != "success" || !strings.Contains(outcome.Cookie, "WFWSESSID=WFW-ACTIVE") {
-		t.Fatalf("unexpected login outcome: %+v", outcome)
+	if !strings.Contains(jwErr.Error(), "校外网关（wfw）当前单点登录异常") {
+		t.Fatalf("unexpected error message: %q", jwErr.Error())
 	}
 }
